@@ -1,0 +1,421 @@
+
+{% extends "base.html" %}
+
+{% block title %}File Sharing - VPN Client Simulator{% endblock %}
+
+{% block content %}
+<!-- VPN Connection Status Alert -->
+<div id="vpnStatusAlert" class="alert alert-warning d-none">
+    <i class="bi bi-exclamation-triangle"></i>
+    <strong>VPN Not Connected:</strong> You must be connected to a VPN server to share files securely.
+</div>
+
+<div class="row">
+    <!-- File Upload Section -->
+    <div class="col-md-6">
+        <div class="card file-upload-card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="bi bi-cloud-upload"></i> Secure File Upload
+                </h5>
+                
+                <!-- Upload Form -->
+                <div class="upload-zone" id="uploadZone">
+                    <div class="upload-content">
+                        <i class="bi bi-cloud-arrow-up upload-icon"></i>
+                        <p class="upload-text">Drag & drop files here or click to browse</p>
+                        <p class="upload-subtext">Max file size: 16MB • Supported formats: txt, pdf, images, docs, archives</p>
+                    </div>
+                    <input type="file" id="fileInput" class="file-input" multiple>
+                </div>
+                
+                <!-- Upload Progress -->
+                <div class="upload-progress d-none" id="uploadProgress">
+                    <div class="progress mb-2">
+                        <div class="progress-bar" id="progressBar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <div class="upload-status" id="uploadStatus">Preparing upload...</div>
+                </div>
+                
+                <!-- Upload Queue -->
+                <div class="upload-queue d-none" id="uploadQueue">
+                    <h6>Upload Queue:</h6>
+                    <div id="queueList"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Transfer Statistics -->
+        <div class="card mt-3">
+            <div class="card-body">
+                <h6 class="card-title">
+                    <i class="bi bi-graph-up"></i> Transfer Statistics
+                </h6>
+                <div class="row text-center">
+                    <div class="col-4">
+                        <div class="stat-number" id="totalFiles">0</div>
+                        <div class="stat-label">Files</div>
+                    </div>
+                    <div class="col-4">
+                        <div class="stat-number" id="totalSize">0 MB</div>
+                        <div class="stat-label">Total Size</div>
+                    </div>
+                    <div class="col-4">
+                        <div class="stat-number" id="fileTypes">0</div>
+                        <div class="stat-label">File Types</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- File List Section -->
+    <div class="col-md-6">
+        <div class="card file-list-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-files"></i> Shared Files
+                </h5>
+                <button class="btn btn-sm btn-outline-primary" id="refreshFiles">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+            <div class="card-body">
+                <!-- File List -->
+                <div class="file-list" id="fileList">
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-folder2-open" style="font-size: 3rem; opacity: 0.3;"></i>
+                        <p class="mt-2">No files shared yet</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- File Actions Modal -->
+<div class="modal fade" id="fileActionsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">File Actions</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="file-info mb-3">
+                    <h6 id="modalFileName">filename.txt</h6>
+                    <p class="text-muted" id="modalFileInfo">Size: 0 MB • Uploaded: --</p>
+                </div>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-primary" id="downloadBtn">
+                        <i class="bi bi-download"></i> Download File
+                    </button>
+                    <button class="btn btn-danger" id="deleteBtn">
+                        <i class="bi bi-trash"></i> Delete File
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Alert Container -->
+<div id="alertContainer" class="mt-3"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+class FileSharing {
+    constructor() {
+        this.currentFile = null;
+        this.vpnConnected = false;
+        this.init();
+    }
+    
+    init() {
+        this.setupEventListeners();
+        this.checkVPNStatus();
+        this.loadFiles();
+        this.loadStats();
+        
+        // Check VPN status every 5 seconds
+        setInterval(() => this.checkVPNStatus(), 5000);
+    }
+    
+    setupEventListeners() {
+        const uploadZone = document.getElementById('uploadZone');
+        const fileInput = document.getElementById('fileInput');
+        
+        // Upload zone click
+        uploadZone.addEventListener('click', () => {
+            if (this.vpnConnected) fileInput.click();
+        });
+        
+        // File input change
+        fileInput.addEventListener('change', (e) => this.handleFileSelect(e.target.files));
+        
+        // Drag & drop
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            if (this.vpnConnected) uploadZone.classList.add('drag-over');
+        });
+        
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('drag-over');
+        });
+        
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('drag-over');
+            if (this.vpnConnected) this.handleFileSelect(e.dataTransfer.files);
+        });
+        
+        // Refresh files
+        document.getElementById('refreshFiles').addEventListener('click', () => {
+            this.loadFiles();
+            this.loadStats();
+        });
+        
+        // Modal actions
+        document.getElementById('downloadBtn').addEventListener('click', () => this.downloadFile());
+        document.getElementById('deleteBtn').addEventListener('click', () => this.deleteFile());
+    }
+    
+    async checkVPNStatus() {
+        try {
+            const response = await fetch('/status');
+            const status = await response.json();
+            
+            this.vpnConnected = status.connected;
+            this.updateVPNStatusUI();
+        } catch (error) {
+            console.error('VPN status check failed:', error);
+        }
+    }
+    
+    updateVPNStatusUI() {
+        const alert = document.getElementById('vpnStatusAlert');
+        const uploadZone = document.getElementById('uploadZone');
+        
+        if (!this.vpnConnected) {
+            alert.classList.remove('d-none');
+            uploadZone.classList.add('disabled');
+        } else {
+            alert.classList.add('d-none');
+            uploadZone.classList.remove('disabled');
+        }
+    }
+    
+    handleFileSelect(files) {
+        if (!this.vpnConnected) {
+            this.showAlert('warning', 'VPN must be connected to upload files');
+            return;
+        }
+        
+        Array.from(files).forEach(file => this.uploadFile(file));
+    }
+    
+    async uploadFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const progressContainer = document.getElementById('uploadProgress');
+        const progressBar = document.getElementById('progressBar');
+        const uploadStatus = document.getElementById('uploadStatus');
+        
+        progressContainer.classList.remove('d-none');
+        uploadStatus.textContent = `Uploading ${file.name}...`;
+        
+        try {
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                progressBar.style.width = '100%';
+                uploadStatus.textContent = 'Upload complete!';
+                this.showAlert('success', result.message);
+                
+                // Refresh file list and stats
+                setTimeout(() => {
+                    this.loadFiles();
+                    this.loadStats();
+                    progressContainer.classList.add('d-none');
+                    progressBar.style.width = '0%';
+                }, 2000);
+            } else {
+                this.showAlert('danger', result.error);
+                progressContainer.classList.add('d-none');
+            }
+        } catch (error) {
+            this.showAlert('danger', 'Upload failed');
+            progressContainer.classList.add('d-none');
+        }
+    }
+    
+    async loadFiles() {
+        try {
+            const response = await fetch('/api/files');
+            const result = await response.json();
+            
+            if (result.success) {
+                this.displayFiles(result.files);
+            } else {
+                console.error('Failed to load files:', result.error);
+            }
+        } catch (error) {
+            console.error('Error loading files:', error);
+        }
+    }
+    
+    displayFiles(files) {
+        const fileList = document.getElementById('fileList');
+        
+        if (files.length === 0) {
+            fileList.innerHTML = `
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-folder2-open" style="font-size: 3rem; opacity: 0.3;"></i>
+                    <p class="mt-2">No files shared yet</p>
+                </div>
+            `;
+            return;
+        }
+        
+        fileList.innerHTML = files.map(file => `
+            <div class="file-item" data-filename="${file.filename}">
+                <div class="file-icon">
+                    <i class="bi ${this.getFileIcon(file.filename)}"></i>
+                </div>
+                <div class="file-info">
+                    <div class="file-name">${file.filename}</div>
+                    <div class="file-details">${file.size_mb} MB • ${this.formatDate(file.upload_time)}</div>
+                </div>
+                <div class="file-actions">
+                    <button class="btn btn-sm btn-outline-primary" onclick="fileSharing.showFileActions('${file.filename}', '${file.size_mb}', '${file.upload_time}')">
+                        <i class="bi bi-three-dots"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    showFileActions(filename, size, uploadTime) {
+        this.currentFile = filename;
+        document.getElementById('modalFileName').textContent = filename;
+        document.getElementById('modalFileInfo').textContent = `Size: ${size} MB • Uploaded: ${this.formatDate(uploadTime)}`;
+        
+        const modal = new bootstrap.Modal(document.getElementById('fileActionsModal'));
+        modal.show();
+    }
+    
+    async downloadFile() {
+        if (!this.currentFile) return;
+        
+        try {
+            window.open(`/download/${this.currentFile}`, '_blank');
+            bootstrap.Modal.getInstance(document.getElementById('fileActionsModal')).hide();
+        } catch (error) {
+            this.showAlert('danger', 'Download failed');
+        }
+    }
+    
+    async deleteFile() {
+        if (!this.currentFile) return;
+        
+        if (!confirm(`Are you sure you want to delete "${this.currentFile}"?`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/delete/${this.currentFile}`, {
+                method: 'DELETE'
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                this.showAlert('success', result.message);
+                this.loadFiles();
+                this.loadStats();
+            } else {
+                this.showAlert('danger', result.error);
+            }
+            
+            bootstrap.Modal.getInstance(document.getElementById('fileActionsModal')).hide();
+        } catch (error) {
+            this.showAlert('danger', 'Delete failed');
+        }
+    }
+    
+    async loadStats() {
+        try {
+            const response = await fetch('/api/transfer-stats');
+            const result = await response.json();
+            
+            if (result.success) {
+                const stats = result.stats;
+                document.getElementById('totalFiles').textContent = stats.total_files;
+                document.getElementById('totalSize').textContent = `${stats.total_size_mb} MB`;
+                document.getElementById('fileTypes').textContent = Object.keys(stats.file_types).length;
+            }
+        } catch (error) {
+            console.error('Error loading stats:', error);
+        }
+    }
+    
+    getFileIcon(filename) {
+        const ext = filename.split('.').pop().toLowerCase();
+        const iconMap = {
+            'pdf': 'bi-file-pdf',
+            'doc': 'bi-file-word',
+            'docx': 'bi-file-word',
+            'txt': 'bi-file-text',
+            'jpg': 'bi-file-image',
+            'jpeg': 'bi-file-image',
+            'png': 'bi-file-image',
+            'gif': 'bi-file-image',
+            'zip': 'bi-file-zip',
+            'rar': 'bi-file-zip',
+            'mp3': 'bi-file-music',
+            'mp4': 'bi-file-play',
+            'avi': 'bi-file-play'
+        };
+        return iconMap[ext] || 'bi-file-earmark';
+    }
+    
+    formatDate(dateString) {
+        return new Date(dateString).toLocaleString();
+    }
+    
+    showAlert(type, message) {
+        const alertContainer = document.getElementById('alertContainer');
+        const alertId = 'alert_' + Date.now();
+        
+        alertContainer.innerHTML = `
+            <div class="alert alert-${type} alert-dismissible fade show" id="${alertId}">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        `;
+        
+        setTimeout(() => {
+            const alertElement = document.getElementById(alertId);
+            if (alertElement) {
+                alertElement.remove();
+            }
+        }, 5000);
+    }
+}
+
+// Initialize file sharing when page loads
+let fileSharing;
+document.addEventListener('DOMContentLoaded', () => {
+    fileSharing = new FileSharing();
+});
+</script>
+{% endblock %}
+"""# VPN Client Simulator - Flask Web Application
+# Complete project structure with all files

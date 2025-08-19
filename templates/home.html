@@ -1,0 +1,292 @@
+
+
+{% extends "base.html" %}
+
+{% block title %}VPN Dashboard - VPN Client Simulator{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- VPN Control Panel -->
+    <div class="col-md-6">
+        <div class="card vpn-control-card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="bi bi-router"></i> VPN Connection Control
+                </h5>
+                
+                <!-- Connection Status -->
+                <div class="connection-status mb-4">
+                    <div class="status-indicator" id="statusIndicator">
+                        <span class="status-dot" id="statusDot"></span>
+                        <span class="status-text" id="statusText">Disconnected</span>
+                    </div>
+                </div>
+                
+                <!-- Server Selection -->
+                <div class="mb-3">
+                    <label for="serverSelect" class="form-label">Select Server</label>
+                    <select class="form-select" id="serverSelect">
+                        <option value="USA - New York">🇺🇸 USA - New York</option>
+                        <option value="USA - Los Angeles">🇺🇸 USA - Los Angeles</option>
+                        <option value="Germany - Berlin">🇩🇪 Germany - Berlin</option>
+                        <option value="Singapore - Central">🇸🇬 Singapore - Central</option>
+                        <option value="UK - London">🇬🇧 UK - London</option>
+                        <option value="Canada - Toronto">🇨🇦 Canada - Toronto</option>
+                        <option value="Japan - Tokyo">🇯🇵 Japan - Tokyo</option>
+                        <option value="Australia - Sydney">🇦🇺 Australia - Sydney</option>
+                    </select>
+                </div>
+                
+                <!-- Control Buttons -->
+                <div class="d-grid gap-2">
+                    <button class="btn btn-success btn-lg" id="connectBtn">
+                        <i class="bi bi-play-circle"></i> Connect
+                    </button>
+                    <button class="btn btn-danger btn-lg" id="disconnectBtn" disabled>
+                        <i class="bi bi-stop-circle"></i> Disconnect
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Session Monitoring -->
+    <div class="col-md-6">
+        <div class="card monitoring-card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="bi bi-graph-up"></i> Session Monitoring
+                </h5>
+                
+                <!-- Current Server -->
+                <div class="monitor-item">
+                    <div class="monitor-label">Current Server:</div>
+                    <div class="monitor-value" id="currentServer">None</div>
+                </div>
+                
+                <!-- Connection Duration -->
+                <div class="monitor-item">
+                    <div class="monitor-label">Duration:</div>
+                    <div class="monitor-value" id="duration">00:00:00</div>
+                </div>
+                
+                <!-- Data Usage -->
+                <div class="monitor-item">
+                    <div class="monitor-label">Data Usage:</div>
+                    <div class="monitor-value" id="dataUsage">0.00 MB</div>
+                </div>
+                
+                <!-- Connection Time -->
+                <div class="monitor-item">
+                    <div class="monitor-label">Connected Since:</div>
+                    <div class="monitor-value" id="connectedSince">Not connected</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Recent Activity -->
+        <div class="card mt-3">
+            <div class="card-body">
+                <h6 class="card-title">
+                    <i class="bi bi-activity"></i> Recent Activity
+                </h6>
+                <div id="recentActivity" class="activity-log">
+                    <div class="activity-item text-muted">No recent activity</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Alert Container -->
+<div id="alertContainer" class="mt-3"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// VPN Dashboard JavaScript
+class VPNDashboard {
+    constructor() {
+        this.isConnected = false;
+        this.statusUpdateInterval = null;
+        this.init();
+    }
+    
+    init() {
+        this.setupEventListeners();
+        this.startStatusUpdates();
+        this.updateStatus();
+    }
+    
+    setupEventListeners() {
+        document.getElementById('connectBtn').addEventListener('click', () => this.connect());
+        document.getElementById('disconnectBtn').addEventListener('click', () => this.disconnect());
+    }
+    
+    async connect() {
+        const server = document.getElementById('serverSelect').value;
+        const connectBtn = document.getElementById('connectBtn');
+        
+        connectBtn.disabled = true;
+        connectBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Connecting...';
+        
+        try {
+            const response = await fetch('/connect', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({server: server})
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                this.showAlert('success', `Connected to ${result.server}`);
+                this.addActivity(`Connected to ${result.server}`, 'success');
+            } else {
+                this.showAlert('danger', result.message);
+            }
+        } catch (error) {
+            this.showAlert('danger', 'Connection failed');
+        }
+        
+        connectBtn.disabled = false;
+        connectBtn.innerHTML = '<i class="bi bi-play-circle"></i> Connect';
+    }
+    
+    async disconnect() {
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        
+        disconnectBtn.disabled = true;
+        disconnectBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Disconnecting...';
+        
+        try {
+            const response = await fetch('/disconnect', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                const stats = result.session_stats;
+                this.showAlert('info', `Disconnected. Session: ${this.formatDuration(stats.duration)}, Data: ${stats.data_used} MB`);
+                this.addActivity(`Disconnected from ${stats.server}`, 'danger');
+            } else {
+                this.showAlert('danger', result.message);
+            }
+        } catch (error) {
+            this.showAlert('danger', 'Disconnection failed');
+        }
+        
+        disconnectBtn.disabled = false;
+        disconnectBtn.innerHTML = '<i class="bi bi-stop-circle"></i> Disconnect';
+    }
+    
+    async updateStatus() {
+        try {
+            const response = await fetch('/status');
+            const status = await response.json();
+            
+            this.isConnected = status.connected;
+            this.updateUI(status);
+        } catch (error) {
+            console.error('Status update failed:', error);
+        }
+    }
+    
+    updateUI(status) {
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const currentServer = document.getElementById('currentServer');
+        const duration = document.getElementById('duration');
+        const dataUsage = document.getElementById('dataUsage');
+        const connectedSince = document.getElementById('connectedSince');
+        
+        if (status.connected) {
+            statusDot.className = 'status-dot connected';
+            statusText.textContent = 'Connected';
+            connectBtn.disabled = true;
+            disconnectBtn.disabled = false;
+            currentServer.textContent = status.server || 'Unknown';
+            duration.textContent = this.formatDuration(status.duration);
+            dataUsage.textContent = `${status.data_usage} MB`;
+            
+            if (status.start_time) {
+                const startTime = new Date(status.start_time);
+                connectedSince.textContent = startTime.toLocaleString();
+            }
+        } else {
+            statusDot.className = 'status-dot disconnected';
+            statusText.textContent = 'Disconnected';
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            currentServer.textContent = 'None';
+            duration.textContent = '00:00:00';
+            dataUsage.textContent = '0.00 MB';
+            connectedSince.textContent = 'Not connected';
+        }
+    }
+    
+    formatDuration(seconds) {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    
+    startStatusUpdates() {
+        this.statusUpdateInterval = setInterval(() => this.updateStatus(), 1000);
+    }
+    
+    showAlert(type, message) {
+        const alertContainer = document.getElementById('alertContainer');
+        const alertId = 'alert_' + Date.now();
+        
+        alertContainer.innerHTML = `
+            <div class="alert alert-${type} alert-dismissible fade show" id="${alertId}">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        `;
+        
+        setTimeout(() => {
+            const alertElement = document.getElementById(alertId);
+            if (alertElement) {
+                alertElement.remove();
+            }
+        }, 5000);
+    }
+    
+    addActivity(message, type) {
+        const activityLog = document.getElementById('recentActivity');
+        const timestamp = new Date().toLocaleTimeString();
+        const icon = type === 'success' ? 'bi-check-circle' : 'bi-x-circle';
+        const textClass = type === 'success' ? 'text-success' : 'text-danger';
+        
+        const activityItem = document.createElement('div');
+        activityItem.className = `activity-item ${textClass}`;
+        activityItem.innerHTML = `<i class="bi ${icon}"></i> ${timestamp} - ${message}`;
+        
+        // Add to top of activity log
+        if (activityLog.firstChild && activityLog.firstChild.textContent.includes('No recent activity')) {
+            activityLog.innerHTML = '';
+        }
+        
+        activityLog.insertBefore(activityItem, activityLog.firstChild);
+        
+        // Keep only last 5 activities
+        while (activityLog.children.length > 5) {
+            activityLog.removeChild(activityLog.lastChild);
+        }
+    }
+}
+
+// Initialize dashboard when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    new VPNDashboard();
+});
+</script>
+{% endblock %}
+"""
