@@ -1,0 +1,34 @@
+
+"""
+{% extends "base.html" %}
+
+{% block title %}VPN Dashboard - Extended VPN Client Simulator{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- VPN Control Panel -->
+    <div class="col-md-6">
+        <div class="card vpn-control-card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="bi bi-router"></i> VPN Connection Control
+                    <span class="badge bg-primary ms-2">Simulator</span>
+                </h5>
+                
+                <!-- Connection Status -->
+                <div class="connection-status mb-4">
+                    <div class="status-indicator" id="statusIndicator">
+                        <span class="status-dot" id="statusDot"></span>
+                        <span class="status-text" id="statusText">Disconnected</span>
+                    </div>
+                </div>
+                
+                <!-- Server Selection -->
+                <div class="mb-3">
+                    <label for="serverSelect" class="form-label">Select Server</label>
+                    <select class="form-select" id="serverSelect">
+                        <option value="USA - New York">🇺🇸 USA - New York</option>
+                        <option value="USA - Los Angeles">🇺🇸 USA - Los Angeles</option>
+                        <option value="Germany - Berlin">🇩🇪 Germany - Berlin</option>
+                        <option value="Singapore - Central">🇸🇬 Singapore - Central</option>
+                        <option value="UK - London">🇬🇧 UK - London</option>
